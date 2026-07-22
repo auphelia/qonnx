@@ -108,7 +108,13 @@ def int_quant(inp_tensor, scale, zeropt, bitwidth, signed, narrow, rounding_mode
     # Port of IntQuant class from Brevitas: https://bit.ly/2S6qvZJ
 
     # Scaling
-    y_int = inp_tensor / scale
+    # Perform the scale division (and the subsequent clamp/round) in float64.
+    # In float32 a value that is only ~1e-7 away from a half-way point (e.g. a
+    # true ratio of -9.4999997) can collapse to an exact tie (-9.5), which
+    # round-half-to-even then sends to the wrong integer level. Computing the
+    # division in float64 keeps the value off the tie so the rounding matches
+    # the mathematically-correct level.
+    y_int = inp_tensor.astype(np.float64) / scale.astype(np.float64)
     y_int = y_int + zeropt
     if bitwidth == 1 and signed:
         # BUG: 1-bit IntQuant ops currently not exported correctly
@@ -127,6 +133,9 @@ def int_quant(inp_tensor, scale, zeropt, bitwidth, signed, narrow, rounding_mode
     # Re-scaling
     out_tensor = y_int - zeropt
     out_tensor = out_tensor * scale
+    # The integer level was picked in float64 above; the rescaled result is
+    # cast back to float32 to preserve the original output dtype.
+    out_tensor = out_tensor.astype(np.float32)
 
     return out_tensor
 
